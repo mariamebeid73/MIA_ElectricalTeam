@@ -1,63 +1,36 @@
-#include<ros.h>
-#include<std_msgs/Float32.h>
-#include "MPU6050_6Axis_MotionApps612.h"
-#include "MPU6050.h" 
-#include "Wire.h"
+#!/usr/bin/env python3
+import rospy
+from std_msgs.msg import Float32
+Filtered_Yaw = 0
 
-MPU6050 mpu;
+def sub_callback(msg):
+   z = msg.data ##  sensor reading
+   R = 1    ##sensor variance
+   Q = 20          ##process variance
+   P = 7          ##uncertainity
+   P_hat = 0       ##prediction uncertainity
+   X = 0           ##state variable
+   X_hat = 0        ##predicted state
+   K = 0            ##kalman gain
+   y = 0           ##residual
+   X_hat = X
+   P_hat = P + Q
 
-// orientation/motion vars
-Quaternion q;           // [w, x, y, z]         quaternion container
-VectorFloat gravity;    // [x, y, z]            gravity vector
-float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vector
+  ##measurement update 
+   y = z - X_hat
+   K = P_hat / (P_hat + R)      ##update kalman gain
+   X = X_hat *  (1 -K) + K * y            ##update predicted state 
+   P = (1 - K) * P_hat          ##update uncertainity     
+   global Filtered_Yaw 
+   Filtered_Yaw = X
 
-unsigned long publisher_timer = 0;
-float yawAngle;
-
-//setup the rosNode and the publisher
-ros::NodeHandle nh;
-std_msgs::Float32 yaw_msg;
-ros::Publisher mpuAngles("YAW_ANGLE",&yaw_msg);
-
-
-
-
-void setup()
-{
-  Wire.begin();
-  mpu.initialize();
-  mpu.dmpInitialize();     // load and configure the DMP
-
-  // supply your own gyro offsets here, scaled for min sensitivity
-  mpu.setXGyroOffset(51);
-  mpu.setYGyroOffset(8);
-  mpu.setZGyroOffset(21);
-  mpu.setXAccelOffset(1150);
-  mpu.setYAccelOffset(-50);
-  mpu.setZAccelOffset(1060);
-  
-  // Calibration Time: generate offsets and calibrate our MPU6050
-  mpu.CalibrateAccel(6);
-  mpu.CalibrateGyro(6);
-  mpu.setDMPEnabled(true);
-
-  nh.initNode();
-  nh.advertise(mpuAngles);
- }
-
-void loop()
-{
-  if((millis() - publisher_timer) > 10)  //publish every 10ms 
-  {
-       // display Euler angles in degrees
-    mpu.dmpGetGravity(&gravity, &q);
-    mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-
-    yawAngle = ypr[0] * 180 / M_PI; 
-    yaw_msg.data = yawAngle;
-    mpuAngles.publish( &yaw_msg );
-    publisher_timer = millis();
-    
-  }
-   nh.spinOnce();
-}
+rospy.init_node('KalmanFilter')
+sub = rospy.Subscriber('YAW_ANGLE', Float32, sub_callback)
+pub = rospy.Publisher('Filtered_Yaw', Float32,queue_size=10)
+rate = rospy.Rate(10)
+count = 0
+while not rospy.is_shutdown():
+    pub.publish(Filtered_Yaw)
+    count += 1
+    rate.sleep()
+rospy.spin()
